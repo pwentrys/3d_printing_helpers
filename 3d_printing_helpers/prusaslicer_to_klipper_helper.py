@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import concurrent.futures
 from datetime import datetime
-
+from pprint import pprint
 
 TARGET_FOLDER: str = 'files'
 # TARGET_FILENAME: str = 'calibration_cube_1h48m_0.08mm_215C_PLA_ENDER3BLTOUCH'
@@ -14,6 +14,7 @@ TARGET_FILETYPE: str = 'gcode'
 CWD: Path = Path.cwd()
 FILES_FOLDER: Path = CWD.joinpath(TARGET_FOLDER)
 RUNTIME_FILEPATH: Path = CWD.joinpath('.last_runtime_counter')
+NEW_LINE_CHARACTER: str = 'Ω'
 
 FILE_ENCODING: str = 'utf-8'
 MAX_WORKERS = os.cpu_count() * 2
@@ -174,7 +175,7 @@ def determine_files(folder: Path, run_time: float) -> tuple:
     for file in folder.iterdir():
         if file.is_file():
             filename = file.name
-            if not filename.endswith(TARGET_FILENAME_UPDATED_STRING):
+            if TARGET_FILENAME_UPDATED_STRING not in filename:
                 stat = file.stat()
                 mod_time = datetime.utcfromtimestamp(stat.st_mtime).timestamp()
                 if run_time < mod_time:
@@ -196,9 +197,91 @@ def do_file_transform(file: Path) -> str:
 
     text_processed: str = process_text(text=text)
     filename: str = f'{file.name.replace(f".{TARGET_FILETYPE}", "")}{TARGET_FILENAME_UPDATED_STRING}.{TARGET_FILETYPE}'
-    file.parent.joinpath(filename).write_text(text_processed, encoding=FILE_ENCODING)
+
+    change_every_x_layers: int = 20
+    commands: tuple = make_debug_commands(num_commands_to_make=200)
+    text_processed_split = text_processed.splitlines()
+
+    counter_layer: int = 0
+    counter_after_layer_modify: int = 0
+    text_post_processed_split: list = []
+    for line in text_processed_split:
+        text_post_processed_split.append(line)
+        if line.startswith(';AFTER_LAYER_CHANGE'):
+            if counter_layer % change_every_x_layers == 0:
+                command = commands[counter_after_layer_modify]
+
+                commands_split = command.split('Ω')
+                for command_split_line in commands_split:
+                    text_post_processed_split.append(command_split_line)
+
+                counter_after_layer_modify += 1
+
+            counter_layer += 1
+
+    text_post_processed: str = '\n'.join(text_post_processed_split)
+
+    file.parent.joinpath(filename).write_text(text_post_processed, encoding=FILE_ENCODING)
 
     return filename
+
+
+def create_incrementing_commands(command: str, starting_val: float, increment: float, num_commands_to_make: int) -> tuple:
+    """
+
+    Args:
+        command:
+        starting_val:
+        increment:
+        num_commands_to_make:
+
+    Returns:
+
+    """
+    command_list = []
+
+    for i in range(num_commands_to_make):
+        layer_increment: float = increment * i
+        layer_increment += starting_val
+        if '.' in str(layer_increment):
+            layer_increment = float('{0:.4f}'.format(layer_increment))
+
+        layer_command = f'{command}{layer_increment}'
+        command_list.append(layer_command)
+
+    return tuple(command_list)
+
+
+def make_debug_commands(num_commands_to_make: int = 10) -> tuple:
+    commands = (
+        # create_incrementing_commands(
+        #     command='SET_PRESSURE_ADVANCE ADVANCE=',
+        #     starting_val=0.00,
+        #     increment=0.025,
+        #     num_commands_to_make=num_commands_to_make,
+        # ),
+        # create_incrementing_commands(
+        #     command='M117 K',
+        #     starting_val=0.00,
+        #     increment=0.025,
+        #     num_commands_to_make=num_commands_to_make,
+        # ),
+        create_incrementing_commands(
+            command='M221 S',
+            starting_val=75.00,
+            increment=3.5,
+            num_commands_to_make=num_commands_to_make,
+        ),
+    )
+
+    combined_commands: list = []
+    for i in range(num_commands_to_make):
+        command_combined_list = (f'{command[i]}' for command in commands)
+        command_combined = f'{NEW_LINE_CHARACTER}'.join(command_combined_list)
+
+        combined_commands.append(command_combined)
+
+    return tuple(combined_commands)
 
 
 def run():
