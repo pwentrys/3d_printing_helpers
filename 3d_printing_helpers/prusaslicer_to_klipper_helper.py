@@ -195,7 +195,7 @@ def do_file_transform(file: Path) -> str:
     text: str = read_text(file)
 
     text_processed: str = process_text(text=text)
-    filename: str = f'{file.name}{TARGET_FILENAME_UPDATED_STRING}.{TARGET_FILETYPE}'
+    filename: str = f'{file.name.replace(f".{TARGET_FILETYPE}", "")}{TARGET_FILENAME_UPDATED_STRING}.{TARGET_FILETYPE}'
     file.parent.joinpath(filename).write_text(text_processed, encoding=FILE_ENCODING)
 
     return filename
