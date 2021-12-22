@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import concurrent.futures
 from datetime import datetime
+from enum import Enum
 from pprint import pprint
 
 TARGET_FOLDER: str = 'files'
@@ -15,6 +16,14 @@ CWD: Path = Path.cwd()
 FILES_FOLDER: Path = CWD.joinpath(TARGET_FOLDER)
 RUNTIME_FILEPATH: Path = CWD.joinpath('.last_runtime_counter')
 NEW_LINE_CHARACTER: str = 'Ω'
+
+
+class TimeCheckMode(Enum):
+    MODIFY_TIME = 0  # All not updated files which were modified since the last time this script started running
+    ALL_RAW = 1  # All files which are not labeled as updated
+
+
+TIME_CHECK_MODE = TimeCheckMode.ALL_RAW
 
 FILE_ENCODING: str = 'utf-8'
 MAX_WORKERS = os.cpu_count() * 2
@@ -175,10 +184,18 @@ def determine_files(folder: Path, run_time: float) -> tuple:
     for file in folder.iterdir():
         if file.is_file():
             filename = file.name
-            if TARGET_FILENAME_UPDATED_STRING not in filename:
-                stat = file.stat()
-                mod_time = datetime.utcfromtimestamp(stat.st_mtime).timestamp()
-                if run_time < mod_time:
+            match TIME_CHECK_MODE:
+                case TimeCheckMode.MODIFY_TIME:
+                    if TARGET_FILENAME_UPDATED_STRING not in filename:
+                        stat = file.stat()
+                        mod_time = datetime.utcfromtimestamp(stat.st_mtime).timestamp()
+                        if run_time < mod_time:
+                            files_list.append(file)
+                case TimeCheckMode.ALL_RAW:
+                    if TARGET_FILENAME_UPDATED_STRING not in filename:
+                        files_list.append(file)
+                case _:
+                    print(f'INVALID TIME CHECK MODE: {TIME_CHECK_MODE}')
                     files_list.append(file)
 
     return tuple(files_list)
@@ -198,28 +215,31 @@ def do_file_transform(file: Path) -> str:
     text_processed: str = process_text(text=text)
     filename: str = f'{file.name.replace(f".{TARGET_FILETYPE}", "")}{TARGET_FILENAME_UPDATED_STRING}.{TARGET_FILETYPE}'
 
-    change_every_x_layers: int = 20
+    change_every_x_layers: int = 18
     commands: tuple = make_debug_commands(num_commands_to_make=200)
-    text_processed_split = text_processed.splitlines()
+    if len(commands) > 0:
+        text_processed_split = text_processed.splitlines()
 
-    counter_layer: int = 0
-    counter_after_layer_modify: int = 0
-    text_post_processed_split: list = []
-    for line in text_processed_split:
-        text_post_processed_split.append(line)
-        if line.startswith(';AFTER_LAYER_CHANGE'):
-            if counter_layer % change_every_x_layers == 0:
-                command = commands[counter_after_layer_modify]
+        counter_layer: int = 0
+        counter_after_layer_modify: int = 0
+        text_post_processed_split: list = []
+        for line in text_processed_split:
+            text_post_processed_split.append(line)
+            if line.startswith(';AFTER_LAYER_CHANGE'):
+                if counter_layer % change_every_x_layers == 0:
+                    command = commands[counter_after_layer_modify]
 
-                commands_split = command.split('Ω')
-                for command_split_line in commands_split:
-                    text_post_processed_split.append(command_split_line)
+                    commands_split = command.split('Ω')
+                    for command_split_line in commands_split:
+                        text_post_processed_split.append(command_split_line)
 
-                counter_after_layer_modify += 1
+                    counter_after_layer_modify += 1
 
-            counter_layer += 1
+                counter_layer += 1
 
-    text_post_processed: str = '\n'.join(text_post_processed_split)
+        text_post_processed: str = '\n'.join(text_post_processed_split)
+    else:
+        text_post_processed = text_processed
 
     file.parent.joinpath(filename).write_text(text_post_processed, encoding=FILE_ENCODING)
 
@@ -266,12 +286,34 @@ def make_debug_commands(num_commands_to_make: int = 10) -> tuple:
         #     increment=0.025,
         #     num_commands_to_make=num_commands_to_make,
         # ),
-        create_incrementing_commands(
-            command='M221 S',
-            starting_val=75.00,
-            increment=3.5,
-            num_commands_to_make=num_commands_to_make,
-        ),
+        # Temperature
+        # create_incrementing_commands(
+        #     command='M104 S',
+        #     starting_val=190.00,
+        #     increment=2.0,
+        #     num_commands_to_make=num_commands_to_make,
+        # ),
+        # Wait for temperature to stabilize
+        # create_incrementing_commands(
+        #     command='M109 S',
+        #     starting_val=190.00,
+        #     increment=2.0,
+        #     num_commands_to_make=num_commands_to_make,
+        # ),
+        # Speed rate percentage vs 100%
+        # create_incrementing_commands(
+        #     command='M220 S',
+        #     starting_val=40.00,
+        #     increment=7.5,
+        #     num_commands_to_make=num_commands_to_make,
+        # ),
+        # Flow / feed rate percentage vs 100%
+        # create_incrementing_commands(
+        #     command='M221 S',
+        #     starting_val=95,
+        #     increment=2.5,
+        #     num_commands_to_make=num_commands_to_make,
+        # ),
     )
 
     combined_commands: list = []
